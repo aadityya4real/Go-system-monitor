@@ -22,6 +22,15 @@ func (c CPUCollector) Collect(ctx context.Context) ([]Metric, error) {
 	default:
 	}
 
+	if runtime.GOOS != "linux" && c.StatPath == "" {
+		return []Metric{{
+			Name:  "gosysmon_cpu_logical_cores",
+			Help:  "Number of logical CPU cores visible to the process.",
+			Type:  Gauge,
+			Value: float64(runtime.NumCPU()),
+		}}, nil
+	}
+
 	path := c.StatPath
 	if path == "" {
 		path = "/proc/stat"

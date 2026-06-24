@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 )
@@ -22,6 +21,12 @@ func (c MemoryCollector) Collect(ctx context.Context) ([]Metric, error) {
 	default:
 	}
 
+	if c.MeminfoPath == "" {
+		if metrics, err := platformMemoryMetrics(); metrics != nil || err == nil {
+			return metrics, err
+		}
+	}
+
 	path := c.MeminfoPath
 	if path == "" {
 		path = "/proc/meminfo"
@@ -29,14 +34,7 @@ func (c MemoryCollector) Collect(ctx context.Context) ([]Metric, error) {
 
 	file, err := os.Open(path)
 	if err != nil {
-		var stats runtime.MemStats
-		runtime.ReadMemStats(&stats)
-		return []Metric{{
-			Name:  "gosysmon_process_heap_alloc_bytes",
-			Help:  "Bytes allocated by the current process heap.",
-			Type:  Gauge,
-			Value: float64(stats.HeapAlloc),
-		}}, fmt.Errorf("collect memory from %s: %w", path, err)
+		return nil, fmt.Errorf("collect memory from %s: %w", path, err)
 	}
 	defer file.Close()
 

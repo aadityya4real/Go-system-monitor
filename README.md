@@ -18,7 +18,10 @@ pipelines.
 ## Requirements
 
 - Go 1.25 or newer.
-- Linux for full CPU, memory, and disk host metrics.
+- Linux, Windows, or WSL.
+- Linux provides CPU mode counters from `/proc/stat`.
+- Windows provides logical CPU cores, physical memory, page file, and disk
+  metrics through native Windows APIs.
 
 ## Run
 
@@ -26,10 +29,22 @@ pipelines.
 go run ./cmd/gosysmon
 ```
 
+On Windows PowerShell:
+
+```powershell
+go run .\cmd\gosysmon
+```
+
 Collect disk metrics for multiple mount points:
 
 ```bash
 go run ./cmd/gosysmon --path / --path /var
+```
+
+On Windows, pass drive paths:
+
+```powershell
+go run .\cmd\gosysmon --path C:\ --path W:\
 ```
 
 Refresh continuously:
