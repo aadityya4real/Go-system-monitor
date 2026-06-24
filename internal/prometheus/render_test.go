@@ -28,3 +28,25 @@ func TestRenderPrometheusText(t *testing.T) {
 		t.Fatalf("missing escaped metric line:\n%s", got)
 	}
 }
+
+func TestRenderEscapesLabels(t *testing.T) {
+	var out strings.Builder
+	err := Render(&out, []collector.Metric{{
+		Name:   "sample_metric",
+		Help:   "Sample\nmetric.",
+		Type:   collector.Gauge,
+		Labels: map[string]string{"path": "W:\\\nquoted\""},
+		Value:  1,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "# HELP sample_metric Sample metric.") {
+		t.Fatalf("help text was not sanitized:\n%s", got)
+	}
+	if !strings.Contains(got, `sample_metric{path="W:\\\nquoted\""} 1`) {
+		t.Fatalf("label was not escaped:\n%s", got)
+	}
+}

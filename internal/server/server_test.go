@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -75,5 +76,69 @@ func TestDashboardIsServed(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "Go System Monitor") {
 		t.Fatalf("missing dashboard markup")
+	}
+}
+
+func TestHealthEndpoint(t *testing.T) {
+	app := New(nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "ok") {
+		t.Fatalf("missing ok health response")
+	}
+}
+
+func TestStatsEndpointPartialFailure(t *testing.T) {
+	app := New([]collector.Collector{
+		collector.CollectorFunc(func(context.Context) ([]collector.Metric, error) {
+			return []collector.Metric{{Name: "sample_metric", Type: collector.Gauge, Value: 1}}, errors.New("partial")
+		}),
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stats", nil)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for partial data, got %d", rec.Code)
+	}
+	var response StatsResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Warning == "" {
+		t.Fatalf("expected warning in response")
+	}
+}
+
+func TestMetricsEndpointAllCollectorsFail(t *testing.T) {
+	app := New([]collector.Collector{
+		collector.CollectorFunc(func(context.Context) ([]collector.Metric, error) {
+			return nil, errors.New("failed")
+		}),
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rec.Code)
+	}
+}
+
+func TestGetOnlyRoutesRejectPost(t *testing.T) {
+	app := New(nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", rec.Code)
 	}
 }

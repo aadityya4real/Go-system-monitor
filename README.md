@@ -13,8 +13,15 @@ JSON API, and serves a real-time browser dashboard from the same single binary.
 - Linux CPU counters from `/proc/stat`.
 - Windows CPU, memory, page file, and disk metrics through native Windows APIs.
 - Linux and Windows disk gauges for size, free, available, and used ratio.
+- Network receive/transmit byte counters.
+- System uptime metric.
 - Static Linux binary and Windows `.exe` build scripts.
+- Docker Compose stack for Go System Monitor, Prometheus, and Grafana.
 - One-shot output by default, with optional watch mode.
+
+## Dashboard Preview
+
+![Dashboard](docs/screenshot.png)
 
 ## Requirements
 
@@ -122,6 +129,22 @@ docker build -t gosysmon .
 docker run --rm -p 9090:9090 gosysmon
 ```
 
+Run the full Prometheus and Grafana stack:
+
+```bash
+docker compose up --build
+```
+
+Then open:
+
+```text
+Go System Monitor: http://localhost:9090
+Prometheus:        http://localhost:9091
+Grafana:           http://localhost:3000
+```
+
+Grafana login defaults to `admin` / `admin`.
+
 ## Verify
 
 ```bash
@@ -133,4 +156,5 @@ go vet ./...
 
 Built a cross-platform Go system monitor with concurrent metric collection,
 Prometheus-compatible `/metrics`, JSON API, embedded real-time dashboard,
-Docker packaging, and GitHub Actions CI for Windows and Linux.
+network and uptime metrics, Docker Compose Prometheus/Grafana stack, release
+automation, and GitHub Actions CI for Windows and Linux.

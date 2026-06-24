@@ -1,6 +1,10 @@
 const state = {
   timer: null,
-  history: [],
+  chart: null,
+  labels: [],
+  cpu: [],
+  memory: [],
+  disk: [],
 };
 
 const el = {
@@ -8,11 +12,15 @@ const el = {
   refresh: document.querySelector("#refresh"),
   cpuUsed: document.querySelector("#cpu-used"),
   cpuCores: document.querySelector("#cpu-cores"),
+  cpuProgress: document.querySelector("#cpu-progress"),
   memoryUsed: document.querySelector("#memory-used"),
   memoryFree: document.querySelector("#memory-free"),
+  memoryProgress: document.querySelector("#memory-progress"),
   diskUsed: document.querySelector("#disk-used"),
   diskFree: document.querySelector("#disk-free"),
+  diskProgress: document.querySelector("#disk-progress"),
   duration: document.querySelector("#duration"),
+  durationProgress: document.querySelector("#duration-progress"),
   status: document.querySelector("#status"),
   warning: document.querySelector("#warning"),
   disks: document.querySelector("#disks"),
@@ -20,9 +28,10 @@ const el = {
   trend: document.querySelector("#trend"),
 };
 
+document.body.classList.add("loading");
 el.refresh.addEventListener("change", schedule);
-window.addEventListener("resize", drawTrend);
 
+initChart();
 schedule();
 load();
 
@@ -37,8 +46,10 @@ async function load() {
   try {
     const response = await fetch("/api/stats", { cache: "no-store" });
     const data = await response.json();
+    document.body.classList.remove("loading");
     render(data);
   } catch (error) {
+    document.body.classList.remove("loading");
     el.status.textContent = "offline";
     el.warning.textContent = error.message;
   }
@@ -50,30 +61,103 @@ function render(data) {
   const cpu = value(byName, "gosysmon_cpu_used_ratio");
   const memory = value(byName, "gosysmon_memory_used_ratio");
   const cores = value(byName, "gosysmon_cpu_logical_cores");
+  const uptime = value(byName, "gosysmon_system_uptime_seconds");
   const diskRows = disks(metrics);
   const primaryDisk = diskRows[0];
 
-  el.timestamp.textContent = `Collected ${new Date(data.collected_at).toLocaleString()}`;
+  el.timestamp.textContent = `Collected ${new Date(data.collected_at).toLocaleString()}${uptime == null ? "" : ` - uptime ${duration(uptime)}`}`;
   el.cpuUsed.textContent = cpu == null ? "--" : percent(cpu);
   el.cpuCores.textContent = cores == null ? "-- cores" : `${cores} cores`;
+  updateProgress(el.cpuProgress, cpu);
+
   el.memoryUsed.textContent = memory == null ? "--" : percent(memory);
-  el.memoryFree.textContent = bytes(value(byName, "gosysmon_memory_available_bytes"));
+  el.memoryFree.textContent = `${bytes(value(byName, "gosysmon_memory_available_bytes"))} available`;
+  updateProgress(el.memoryProgress, memory);
+
   el.diskUsed.textContent = primaryDisk ? percent(primaryDisk.used) : "--";
   el.diskFree.textContent = primaryDisk ? `${bytes(primaryDisk.free)} free` : "-- free";
+  updateProgress(el.diskProgress, primaryDisk ? primaryDisk.used : null);
+
   el.duration.textContent = `${data.duration_ms} ms`;
   el.status.textContent = data.warning ? "partial" : "healthy";
+  updateProgress(el.durationProgress, Math.min(1, data.duration_ms / 1000));
   el.warning.textContent = data.warning || "";
 
-  state.history.push({
-    cpu,
-    memory,
-    disk: primaryDisk ? primaryDisk.used : null,
-  });
-  state.history = state.history.slice(-48);
-
+  pushTrend(cpu, memory, primaryDisk ? primaryDisk.used : null);
   renderDisks(diskRows);
   renderMetrics(metrics);
-  drawTrend();
+}
+
+function initChart() {
+  if (!window.Chart) {
+    el.warning.textContent = "Chart.js could not load; raw metrics are still available.";
+    return;
+  }
+
+  state.chart = new Chart(el.trend, {
+    type: "line",
+    data: {
+      labels: state.labels,
+      datasets: [
+        dataset("CPU", state.cpu, "#65a6ff"),
+        dataset("Memory", state.memory, "#45d6b5"),
+        dataset("Disk", state.disk, "#f0b84d"),
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 240 },
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        y: {
+          min: 0,
+          max: 100,
+          ticks: { color: "#9aa6af", callback: (value) => `${value}%` },
+          grid: { color: "#313a42" },
+          title: { display: true, text: "Usage", color: "#9aa6af" },
+        },
+        x: {
+          ticks: { color: "#9aa6af", maxTicksLimit: 8 },
+          grid: { color: "#1f252b" },
+          title: { display: true, text: "Sample time", color: "#9aa6af" },
+        },
+      },
+      plugins: {
+        legend: { labels: { color: "#f2f5f7" } },
+        tooltip: { callbacks: { label: (item) => `${item.dataset.label}: ${item.formattedValue}%` } },
+      },
+    },
+  });
+}
+
+function dataset(label, data, color) {
+  return {
+    label,
+    data,
+    borderColor: color,
+    backgroundColor: `${color}22`,
+    borderWidth: 2,
+    pointRadius: 2,
+    tension: 0.32,
+    fill: false,
+  };
+}
+
+function pushTrend(cpu, memory, disk) {
+  state.labels.push(new Date().toLocaleTimeString());
+  state.cpu.push(toPercentNumber(cpu));
+  state.memory.push(toPercentNumber(memory));
+  state.disk.push(toPercentNumber(disk));
+
+  for (const series of [state.labels, state.cpu, state.memory, state.disk]) {
+    if (series.length > 48) {
+      series.shift();
+    }
+  }
+  if (state.chart) {
+    state.chart.update();
+  }
 }
 
 function metricKey(metric) {
@@ -116,7 +200,7 @@ function renderDisks(rows) {
           <strong>${escapeHTML(row.path)}</strong>
           <span>${percent(used)}</span>
         </div>
-        <div class="bar"><span class="${level(used)}" style="width:${Math.max(0, Math.min(100, used * 100))}%"></span></div>
+        <div class="bar"><span class="${level(used)}" style="width:${clampPercent(used)}%"></span></div>
         <div class="disk-path">${bytes(row.free)} free of ${bytes(row.size)}</div>
       `;
       return item;
@@ -126,7 +210,7 @@ function renderDisks(rows) {
 
 function renderMetrics(metrics) {
   el.metrics.replaceChildren(
-    ...metrics.slice(0, 40).map((metric) => {
+    ...metrics.slice(0, 60).map((metric) => {
       const item = document.createElement("div");
       item.className = "metric-row";
       item.innerHTML = `
@@ -141,69 +225,20 @@ function renderMetrics(metrics) {
   );
 }
 
-function drawTrend() {
-  const canvas = el.trend;
-  const rect = canvas.getBoundingClientRect();
-  const scale = window.devicePixelRatio || 1;
-  canvas.width = Math.max(1, Math.floor(rect.width * scale));
-  canvas.height = Math.max(1, Math.floor(rect.height * scale));
-
-  const ctx = canvas.getContext("2d");
-  ctx.scale(scale, scale);
-  ctx.clearRect(0, 0, rect.width, rect.height);
-
-  const padding = 28;
-  ctx.strokeStyle = "#313a42";
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const y = padding + ((rect.height - padding * 2) * i) / 4;
-    ctx.beginPath();
-    ctx.moveTo(padding, y);
-    ctx.lineTo(rect.width - padding, y);
-    ctx.stroke();
-  }
-
-  line(ctx, rect, "cpu", "#65a6ff");
-  line(ctx, rect, "memory", "#45d6b5");
-  line(ctx, rect, "disk", "#f0b84d");
-  legend(ctx, rect);
+function updateProgress(node, value) {
+  if (!node) return;
+  node.className = level(value || 0);
+  node.style.width = `${clampPercent(value)}%`;
 }
 
-function line(ctx, rect, key, color) {
-  const values = state.history.map((row) => row[key]).filter((n) => n != null);
-  if (values.length < 2) return;
-
-  const padding = 28;
-  const width = rect.width - padding * 2;
-  const height = rect.height - padding * 2;
-  const step = width / Math.max(1, values.length - 1);
-
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  values.forEach((value, index) => {
-    const x = padding + index * step;
-    const y = padding + height - Math.max(0, Math.min(1, value)) * height;
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
+function clampPercent(value) {
+  if (value == null || Number.isNaN(value)) return 0;
+  return Math.max(0, Math.min(100, value * 100));
 }
 
-function legend(ctx, rect) {
-  const items = [
-    ["CPU", "#65a6ff"],
-    ["Memory", "#45d6b5"],
-    ["Disk", "#f0b84d"],
-  ];
-  ctx.font = "12px system-ui";
-  items.forEach(([label, color], index) => {
-    const x = rect.width - 220 + index * 72;
-    ctx.fillStyle = color;
-    ctx.fillRect(x, 16, 10, 10);
-    ctx.fillStyle = "#9aa6af";
-    ctx.fillText(label, x + 16, 25);
-  });
+function toPercentNumber(value) {
+  if (value == null || Number.isNaN(value)) return null;
+  return Number((value * 100).toFixed(2));
 }
 
 function percent(value) {
@@ -226,6 +261,15 @@ function bytes(value) {
     unit++;
   }
   return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function duration(seconds) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
 function formatNumber(value) {

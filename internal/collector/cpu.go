@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type CPUCollector struct {
@@ -34,74 +35,128 @@ func (c CPUCollector) Collect(ctx context.Context) ([]Metric, error) {
 		path = "/proc/stat"
 	}
 
+	if runtime.GOOS == "linux" && c.StatPath == "" {
+		first, err := readCPUSnapshot(path)
+		if err != nil {
+			return []Metric{logicalCoresMetric()}, fmt.Errorf("collect cpu from %s: %w", path, err)
+		}
+		timer := time.NewTimer(500 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+		second, err := readCPUSnapshot(path)
+		if err != nil {
+			return []Metric{logicalCoresMetric()}, fmt.Errorf("collect cpu from %s: %w", path, err)
+		}
+		return appendLogicalCores(cpuMetrics(second, &first)), nil
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
-		return []Metric{{
-			Name:  "gosysmon_cpu_logical_cores",
-			Help:  "Number of logical CPU cores visible to the process.",
-			Type:  Gauge,
-			Value: float64(runtime.NumCPU()),
-		}}, fmt.Errorf("collect cpu from %s: %w", path, err)
+		return []Metric{logicalCoresMetric()}, fmt.Errorf("collect cpu from %s: %w", path, err)
 	}
 	defer file.Close()
 
 	return parseCPUStat(file)
 }
 
+type cpuSnapshot struct {
+	modes map[string]float64
+	total float64
+	idle  float64
+}
+
 func parseCPUStat(r io.Reader) ([]Metric, error) {
+	snapshot, err := parseCPUSnapshot(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return appendLogicalCores(cpuMetrics(snapshot, nil)), nil
+}
+
+func readCPUSnapshot(path string) (cpuSnapshot, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return cpuSnapshot{}, err
+	}
+	defer file.Close()
+	return parseCPUSnapshot(file)
+}
+
+func parseCPUSnapshot(r io.Reader) (cpuSnapshot, error) {
 	scanner := bufio.NewScanner(r)
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil {
-			return nil, err
+			return cpuSnapshot{}, err
 		}
-		return nil, fmt.Errorf("missing aggregate cpu line")
+		return cpuSnapshot{}, fmt.Errorf("missing aggregate cpu line")
 	}
 
 	fields := strings.Fields(scanner.Text())
 	if len(fields) < 5 || fields[0] != "cpu" {
-		return nil, fmt.Errorf("unexpected aggregate cpu line")
+		return cpuSnapshot{}, fmt.Errorf("unexpected aggregate cpu line")
 	}
 
 	modes := []string{"user", "nice", "system", "idle", "iowait", "irq", "softirq", "steal", "guest", "guest_nice"}
-	metrics := make([]Metric, 0, len(fields))
-	var total, idle float64
+	snapshot := cpuSnapshot{modes: map[string]float64{}}
 
 	for i := 1; i < len(fields) && i <= len(modes); i++ {
 		ticks, err := strconv.ParseFloat(fields[i], 64)
 		if err != nil {
-			return nil, fmt.Errorf("parse cpu %s ticks: %w", modes[i-1], err)
+			return cpuSnapshot{}, fmt.Errorf("parse cpu %s ticks: %w", modes[i-1], err)
 		}
-		seconds := ticks / 100
-		total += ticks
+		snapshot.modes[modes[i-1]] = ticks / 100
+		snapshot.total += ticks
 		if modes[i-1] == "idle" || modes[i-1] == "iowait" {
-			idle += ticks
+			snapshot.idle += ticks
+		}
+	}
+
+	return snapshot, scanner.Err()
+}
+
+func cpuMetrics(current cpuSnapshot, previous *cpuSnapshot) []Metric {
+	metrics := make([]Metric, 0, len(current.modes)+1)
+	modes := []string{"user", "nice", "system", "idle", "iowait", "irq", "softirq", "steal", "guest", "guest_nice"}
+	for _, mode := range modes {
+		seconds, ok := current.modes[mode]
+		if !ok {
+			continue
 		}
 		metrics = append(metrics, Metric{
 			Name:   "gosysmon_cpu_seconds_total",
 			Help:   "Seconds the CPUs spent in each mode since boot.",
 			Type:   Counter,
-			Labels: map[string]string{"mode": modes[i-1]},
+			Labels: map[string]string{"mode": mode},
 			Value:  seconds,
 		})
 	}
 
-	if total > 0 {
+	if previous != nil {
+		totalDelta := current.total - previous.total
+		idleDelta := current.idle - previous.idle
+		if totalDelta > 0 {
+			metrics = append(metrics, Metric{
+				Name:  "gosysmon_cpu_used_ratio",
+				Help:  "Current non-idle CPU time ratio sampled over a short interval.",
+				Type:  Gauge,
+				Value: (totalDelta - idleDelta) / totalDelta,
+			})
+		}
+	} else if current.total > 0 {
 		metrics = append(metrics, Metric{
 			Name:  "gosysmon_cpu_used_ratio",
 			Help:  "Approximate non-idle CPU time ratio since boot.",
 			Type:  Gauge,
-			Value: (total - idle) / total,
+			Value: (current.total - current.idle) / current.total,
 		})
 	}
 
-	metrics = append(metrics, Metric{
-		Name:  "gosysmon_cpu_logical_cores",
-		Help:  "Number of logical CPU cores visible to the process.",
-		Type:  Gauge,
-		Value: float64(runtime.NumCPU()),
-	})
-
-	return metrics, scanner.Err()
+	return metrics
 }
 
 func logicalCoresMetric() Metric {

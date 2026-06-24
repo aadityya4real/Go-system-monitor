@@ -29,11 +29,11 @@ func (c DiskCollector) Collect(ctx context.Context) ([]Metric, error) {
 
 	paths := c.Paths
 	if len(paths) == 0 {
-		root, err := currentDriveRoot()
+		drives, err := windowsDriveRoots()
 		if err != nil {
 			return nil, err
 		}
-		paths = []string{root}
+		paths = drives
 	}
 
 	var metrics []Metric
@@ -74,12 +74,50 @@ func (c DiskCollector) Collect(ctx context.Context) ([]Metric, error) {
 	return metrics, nil
 }
 
+func windowsDriveRoots() ([]string, error) {
+	var roots []string
+	for letter := 'A'; letter <= 'Z'; letter++ {
+		root := fmt.Sprintf("%c:\\", letter)
+		if windowsDiskAvailable(root) {
+			roots = append(roots, root)
+		}
+	}
+	if len(roots) > 0 {
+		return roots, nil
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("get working directory: %w", err)
+	}
+	root, err := windowsVolumeRoot(wd)
+	if err != nil {
+		return nil, err
+	}
+	return []string{root}, nil
+}
+
 func currentDriveRoot() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("get working directory: %w", err)
 	}
 	return windowsVolumeRoot(wd)
+}
+
+func windowsDiskAvailable(root string) bool {
+	rootPtr, err := syscall.UTF16PtrFromString(root)
+	if err != nil {
+		return false
+	}
+	var available, total, free uint64
+	ret, _, _ := procGetDiskFreeSpaceExW.Call(
+		uintptr(unsafe.Pointer(rootPtr)),
+		uintptr(unsafe.Pointer(&available)),
+		uintptr(unsafe.Pointer(&total)),
+		uintptr(unsafe.Pointer(&free)),
+	)
+	return ret != 0 && total > 0
 }
 
 func windowsVolumeRoot(path string) (string, error) {

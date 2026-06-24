@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap");
+
 :root {
   color-scheme: dark;
   --bg: #111417;
@@ -123,6 +125,46 @@ main {
   font-size: 31px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+}
+
+body.loading .tile strong {
+  width: 76px;
+  height: 31px;
+  border-radius: 6px;
+  color: transparent;
+  background: linear-gradient(90deg, #222930, #303942, #222930);
+  background-size: 220% 100%;
+  animation: shimmer 1.15s infinite linear;
+}
+
+.tile-progress {
+  height: 7px;
+  border-radius: 999px;
+  background: #101316;
+  overflow: hidden;
+}
+
+.tile-progress > span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--teal);
+  transition: width 240ms ease, background 240ms ease;
+}
+
+.tile-progress > span.warn {
+  background: var(--amber);
+}
+
+.tile-progress > span.danger {
+  background: var(--red);
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -220% 0;
+  }
 }
 
 .chart-panel {

@@ -46,6 +46,12 @@ func platformMemoryMetrics() ([]Metric, error) {
 			Value: float64(status.availPhys),
 		},
 		{
+			Name:  "gosysmon_memory_free_bytes",
+			Help:  memoryHelp("gosysmon_memory_free_bytes"),
+			Type:  Gauge,
+			Value: float64(status.availPhys),
+		},
+		{
 			Name:  "gosysmon_swap_total_bytes",
 			Help:  memoryHelp("gosysmon_swap_total_bytes"),
 			Type:  Gauge,

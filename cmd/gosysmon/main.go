@@ -52,6 +52,8 @@ func main() {
 		collector.CPUCollector{},
 		collector.MemoryCollector{},
 		collector.DiskCollector{Paths: paths},
+		collector.NetworkCollector{},
+		collector.UptimeCollector{},
 	}
 
 	if *serve {
