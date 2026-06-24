@@ -1,18 +1,19 @@
-# Go System Monitor CLI
+# Go System Monitor
 
-A lightweight Linux system monitoring CLI written in Go. It collects CPU,
-memory, and disk metrics concurrently and prints Prometheus-compatible text
-that can be scraped, redirected, or plugged into existing observability
-pipelines.
+A cross-platform system monitoring app written in Go. It collects CPU, memory,
+and disk metrics concurrently, exposes Prometheus-compatible output, provides a
+JSON API, and serves a real-time browser dashboard from the same single binary.
 
 ## Features
 
 - Concurrent metric collection with goroutines and channels.
-- CPU counters from `/proc/stat`, including per-mode seconds and used ratio.
-- Memory gauges from `/proc/meminfo`, including total, available, free, swap,
-  and used ratio.
-- Disk gauges from `statfs`, including size, free, available, and used ratio.
-- Single static binary build path for Linux deployment.
+- Prometheus `/metrics` endpoint for observability pipelines.
+- JSON `/api/stats` endpoint for custom integrations.
+- Embedded dashboard UI with live refresh and usage trends.
+- Linux CPU counters from `/proc/stat`.
+- Windows CPU, memory, page file, and disk metrics through native Windows APIs.
+- Linux and Windows disk gauges for size, free, available, and used ratio.
+- Static Linux binary and Windows `.exe` build scripts.
 - One-shot output by default, with optional watch mode.
 
 ## Requirements
@@ -23,7 +24,7 @@ pipelines.
 - Windows provides logical CPU cores, physical memory, page file, and disk
   metrics through native Windows APIs.
 
-## Run
+## CLI
 
 ```bash
 go run ./cmd/gosysmon
@@ -53,6 +54,35 @@ Refresh continuously:
 go run ./cmd/gosysmon --watch --interval 10s
 ```
 
+## Dashboard
+
+Start the web app:
+
+```bash
+go run ./cmd/gosysmon --serve --addr :9090
+```
+
+On Windows:
+
+```powershell
+go run .\cmd\gosysmon --serve --addr :9090 --path W:\
+```
+
+Open:
+
+```text
+http://localhost:9090
+```
+
+Useful endpoints:
+
+```text
+GET /              Browser dashboard
+GET /api/stats     JSON metrics
+GET /metrics       Prometheus text format
+GET /healthz       Health check
+```
+
 Example output:
 
 ```text
@@ -79,9 +109,28 @@ $env:CGO_ENABLED='0'; $env:GOOS='linux'; $env:GOARCH='amd64'
 go build -trimpath -ldflags="-s -w" -o bin/gosysmon ./cmd/gosysmon
 ```
 
+Build a Windows executable:
+
+```powershell
+.\scripts\build-windows.ps1
+```
+
+Build a Docker image:
+
+```bash
+docker build -t gosysmon .
+docker run --rm -p 9090:9090 gosysmon
+```
+
 ## Verify
 
 ```bash
 go test ./...
 go vet ./...
 ```
+
+## Resume Bullet
+
+Built a cross-platform Go system monitor with concurrent metric collection,
+Prometheus-compatible `/metrics`, JSON API, embedded real-time dashboard,
+Docker packaging, and GitHub Actions CI for Windows and Linux.

@@ -22,13 +22,11 @@ func (c CPUCollector) Collect(ctx context.Context) ([]Metric, error) {
 	default:
 	}
 
-	if runtime.GOOS != "linux" && c.StatPath == "" {
-		return []Metric{{
-			Name:  "gosysmon_cpu_logical_cores",
-			Help:  "Number of logical CPU cores visible to the process.",
-			Type:  Gauge,
-			Value: float64(runtime.NumCPU()),
-		}}, nil
+	if c.StatPath == "" {
+		metrics, err := platformCPUMetrics()
+		if metrics != nil || err != nil {
+			return appendLogicalCores(metrics), err
+		}
 	}
 
 	path := c.StatPath
@@ -104,4 +102,17 @@ func parseCPUStat(r io.Reader) ([]Metric, error) {
 	})
 
 	return metrics, scanner.Err()
+}
+
+func logicalCoresMetric() Metric {
+	return Metric{
+		Name:  "gosysmon_cpu_logical_cores",
+		Help:  "Number of logical CPU cores visible to the process.",
+		Type:  Gauge,
+		Value: float64(runtime.NumCPU()),
+	}
+}
+
+func appendLogicalCores(metrics []Metric) []Metric {
+	return append(metrics, logicalCoresMetric())
 }

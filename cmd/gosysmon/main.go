@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/aadityya4real/Go-system-monitor/internal/collector"
 	"github.com/aadityya4real/Go-system-monitor/internal/prometheus"
+	"github.com/aadityya4real/Go-system-monitor/internal/server"
 )
 
 type pathList []string
@@ -31,6 +33,8 @@ func (p *pathList) Set(value string) error {
 func main() {
 	var paths pathList
 	watch := flag.Bool("watch", false, "keep collecting metrics until interrupted")
+	serve := flag.Bool("serve", false, "start the web dashboard and HTTP metrics server")
+	addr := flag.String("addr", ":9090", "HTTP address for --serve")
 	interval := flag.Duration("interval", 5*time.Second, "watch collection interval")
 	quiet := flag.Bool("quiet", false, "suppress collector warnings on stderr")
 	flag.Var(&paths, "path", "filesystem path to collect disk metrics for; repeatable")
@@ -48,6 +52,16 @@ func main() {
 		collector.CPUCollector{},
 		collector.MemoryCollector{},
 		collector.DiskCollector{Paths: paths},
+	}
+
+	if *serve {
+		fmt.Fprintf(os.Stdout, "Go System Monitor dashboard: %s\n", server.URL(*addr))
+		err := server.New(collectors, slog.Default()).ListenAndServe(ctx, *addr)
+		if err != nil && err != context.Canceled {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	if !*watch {

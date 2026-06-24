@@ -16,11 +16,11 @@ const (
 )
 
 type Metric struct {
-	Name   string
-	Help   string
-	Type   MetricType
-	Labels map[string]string
-	Value  float64
+	Name   string            `json:"name"`
+	Help   string            `json:"help"`
+	Type   MetricType        `json:"type"`
+	Labels map[string]string `json:"labels,omitempty"`
+	Value  float64           `json:"value"`
 }
 
 type Collector interface {
