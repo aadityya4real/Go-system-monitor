@@ -28,15 +28,17 @@ func platformCPUMetrics() ([]Metric, error) {
 		return nil, err
 	}
 
-	metrics := windowsCPUMetrics(second)
-	totalDelta := second.total - first.total
 	idleDelta := second.idle - first.idle
-	if totalDelta > 0 {
+	kernelDelta := second.kernel - first.kernel
+	userDelta := second.user - first.user
+
+	metrics := windowsCPUMetrics(second)
+	if ratio, ok := windowsCPUUsedRatio(idleDelta, kernelDelta, userDelta); ok {
 		metrics = append(metrics, Metric{
 			Name:  "gosysmon_cpu_used_ratio",
 			Help:  "Current non-idle CPU time ratio sampled over a short interval.",
 			Type:  Gauge,
-			Value: (totalDelta - idleDelta) / totalDelta,
+			Value: ratio,
 		})
 	}
 
@@ -45,9 +47,8 @@ func platformCPUMetrics() ([]Metric, error) {
 
 type windowsCPUSample struct {
 	idle   float64
-	system float64
+	kernel float64
 	user   float64
-	total  float64
 }
 
 func windowsCPUSnapshot() (windowsCPUSample, error) {
@@ -61,23 +62,18 @@ func windowsCPUSnapshot() (windowsCPUSample, error) {
 		return windowsCPUSample{}, fmt.Errorf("GetSystemTimes: %w", err)
 	}
 
-	idleSeconds := fileTimeSeconds(idle)
-	kernelSeconds := fileTimeSeconds(kernel)
-	userSeconds := fileTimeSeconds(user)
-	systemSeconds := kernelSeconds - idleSeconds
-	if systemSeconds < 0 {
-		systemSeconds = 0
-	}
-
 	return windowsCPUSample{
-		idle:   idleSeconds,
-		system: systemSeconds,
-		user:   userSeconds,
-		total:  idleSeconds + systemSeconds + userSeconds,
+		idle:   fileTimeSeconds(idle),
+		kernel: fileTimeSeconds(kernel),
+		user:   fileTimeSeconds(user),
 	}, nil
 }
 
 func windowsCPUMetrics(sample windowsCPUSample) []Metric {
+	system := sample.kernel - sample.idle
+	if system < 0 {
+		system = 0
+	}
 	return []Metric{
 		{
 			Name:   "gosysmon_cpu_seconds_total",
@@ -91,7 +87,7 @@ func windowsCPUMetrics(sample windowsCPUSample) []Metric {
 			Help:   "Seconds the CPUs spent in each mode since boot.",
 			Type:   Counter,
 			Labels: map[string]string{"mode": "system"},
-			Value:  sample.system,
+			Value:  system,
 		},
 		{
 			Name:   "gosysmon_cpu_seconds_total",
@@ -101,6 +97,24 @@ func windowsCPUMetrics(sample windowsCPUSample) []Metric {
 			Value:  sample.user,
 		},
 	}
+}
+
+func windowsCPUUsedRatio(idleDelta, kernelDelta, userDelta float64) (float64, bool) {
+	// On Windows, kernel time includes idle time.
+	totalDelta := kernelDelta + userDelta
+	if totalDelta <= 0 {
+		return 0, false
+	}
+
+	busyDelta := (kernelDelta - idleDelta) + userDelta
+	if busyDelta < 0 {
+		busyDelta = 0
+	}
+	ratio := busyDelta / totalDelta
+	if ratio > 1 {
+		ratio = 1
+	}
+	return ratio, true
 }
 
 func fileTimeSeconds(value fileTime) float64 {

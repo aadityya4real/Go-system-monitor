@@ -32,6 +32,10 @@ func platformMemoryMetrics() ([]Metric, error) {
 		return nil, fmt.Errorf("GlobalMemoryStatusEx: %w", err)
 	}
 
+	return windowsMemoryMetrics(status), nil
+}
+
+func windowsMemoryMetrics(status memoryStatusEx) []Metric {
 	metrics := []Metric{
 		{
 			Name:  "gosysmon_memory_total_bytes",
@@ -74,5 +78,5 @@ func platformMemoryMetrics() ([]Metric, error) {
 		})
 	}
 
-	return metrics, nil
+	return metrics
 }

@@ -71,10 +71,9 @@ func (c NetworkCollector) Collect(ctx context.Context) ([]Metric, error) {
 
 	count := *(*uint32)(unsafe.Pointer(&buf[0]))
 	rowSize := unsafe.Sizeof(mibIfRow{})
-	base := uintptr(unsafe.Pointer(&buf[4]))
 	metrics := make([]Metric, 0, int(count)*2)
 	for i := uint32(0); i < count; i++ {
-		row := (*mibIfRow)(unsafe.Pointer(base + uintptr(i)*rowSize))
+		row := (*mibIfRow)(unsafe.Pointer(uintptr(unsafe.Pointer(&buf[4])) + uintptr(i)*rowSize))
 		name := rowDescription(row)
 		if name == "" {
 			name = fmt.Sprintf("if%d", row.Index)

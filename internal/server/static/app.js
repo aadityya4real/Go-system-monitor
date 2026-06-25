@@ -43,8 +43,13 @@ function schedule() {
 }
 
 async function load() {
+  el.status.textContent = document.body.classList.contains("loading") ? "loading" : "refreshing";
+  el.warning.textContent = "";
   try {
     const response = await fetch("/api/stats", { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`stats request failed with ${response.status}`);
+    }
     const data = await response.json();
     document.body.classList.remove("loading");
     render(data);
